@@ -71,7 +71,9 @@ app.use((error, req, res, next) => {
 if (fs.existsSync(publicDir)) {
   app.use(express.static(publicDir));
 
-  app.get("/*", (req, res, next) => {
+  // Serve the SPA for all non-API, non-health routes
+  // Using a regex to exclude /api/* and /health so those routes still work
+  app.get(/^(?!\/api(?:\/|$)|\/health$).*/, (req, res, next) => {
     res.sendFile(path.join(publicDir, "index.html"), (err) => next(err));
   });
 }
