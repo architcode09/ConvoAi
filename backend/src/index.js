@@ -29,11 +29,22 @@ app.use("/api/webhooks/clerk", express.raw({ type: "application/json" }), clerkW
 app.use(express.json());
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
+    origin: (origin, callback, req) => {
+      // No origin = same-origin request (curl, server-to-server) → always allow
+      if (!origin) return callback(null, true);
+
+      // No explicit allow-list configured → allow everything
+      if (allowedOrigins.length === 0) return callback(null, true);
+
+      // Explicitly listed origin → allow
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      // The browser sends Origin even for same-domain asset loads when the
+      // <script>/<link> tag has crossorigin="" (which Vite adds in production).
+      // In that case origin === the app's own public URL, so we allow it.
+      const host = req?.headers?.host;
+      if (host && origin === `https://${host}`) return callback(null, true);
+      if (host && origin === `http://${host}`) return callback(null, true);
 
       callback(new Error("CORS origin not allowed"));
     },

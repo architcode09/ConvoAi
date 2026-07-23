@@ -10,18 +10,28 @@ function getAllowedOrigins() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  const defaults = ["http://localhost:5173", "http://127.0.0.1:5173"];
-  return [...new Set([...(configuredOrigins || []), ...defaults])];
+  // If no explicit list is configured, we'll handle dynamically (monolith mode)
+  return configuredOrigins || [];
 }
 
 const allowedOrigins = getAllowedOrigins();
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
+    origin: (origin, callback, req) => {
+      // No origin header \u2192 non-browser or same-site request \u2192 allow
+      if (!origin) return callback(null, true);
+
+      // No allow-list configured \u2192 allow all (monolith: frontend served from same origin)
+      if (allowedOrigins.length === 0) return callback(null, true);
+
+      // Explicitly listed origin \u2192 allow
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      // Always allow the app's own host (handles Render/production same-origin WS)
+      const host = req?.headers?.host;
+      if (host && (origin === `https://${host}` || origin === `http://${host}`)) {
+        return callback(null, true);
       }
 
       callback(new Error("Socket.IO origin not allowed"));
