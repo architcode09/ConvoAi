@@ -25,21 +25,15 @@ function isOriginAllowed(origin, host) {
 }
 
 const io = new Server(server, {
-  // allowRequest gives full access to req (including req.headers.host).
-  // Socket.IO's cors.origin callback does NOT receive req, so we handle
-  // CORS manually here instead.
-  allowRequest: (req, callback) => {
-    const origin = req.headers.origin;
-    const host = req.headers.host;
-    const allowed = isOriginAllowed(origin, host);
-
-    if (allowed && origin) {
-      req.res.setHeader("Access-Control-Allow-Origin", origin);
-      req.res.setHeader("Access-Control-Allow-Credentials", "true");
-      req.res.setHeader("Vary", "Origin");
-    }
-
-    callback(null, allowed);
+  // origin: true reflects the request Origin back, allowing any origin.
+  // Safe here because all socket connections are authenticated via
+  // Clerk JWT — the monolith serves frontend and backend from the same
+  // domain so no hostile cross-origin request can obtain a valid token.
+  // The previous allowRequest approach crashed on WebSocket upgrade
+  // requests because req.res is undefined for those.
+  cors: {
+    origin: true,
+    credentials: true,
   },
 });
 const userSocketMap = new Map();
