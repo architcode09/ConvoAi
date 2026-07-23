@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 
 import "dotenv/config";
 
@@ -27,30 +26,49 @@ const publicDir = path.join(process.cwd(), "public");
 app.use("/api/webhooks/clerk", express.raw({ type: "application/json" }), clerkWebhook);
 
 app.use(express.json());
-app.use(
-  cors({
-    origin: (origin, callback, req) => {
-      // No origin = same-origin request (curl, server-to-server) → always allow
-      if (!origin) return callback(null, true);
 
-      // No explicit allow-list configured → allow everything
-      if (allowedOrigins.length === 0) return callback(null, true);
+// Custom CORS middleware — replaces the `cors` package so we have access to
+// `req.headers.host`. This is needed because Vite adds crossorigin="" to
+// script/link tags in production builds, which causes the browser to send an
+// Origin header even for same-domain asset loads (e.g. on Render the frontend
+// origin is https://convoai-2ntn.onrender.com, same as the backend host).
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const host = req.headers.host;
 
-      // Explicitly listed origin → allow
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+  const isSameOrigin =
+    host &&
+    (origin === `https://${host}` || origin === `http://${host}`);
 
-      // The browser sends Origin even for same-domain asset loads when the
-      // <script>/<link> tag has crossorigin="" (which Vite adds in production).
-      // In that case origin === the app's own public URL, so we allow it.
-      const host = req?.headers?.host;
-      if (host && origin === `https://${host}`) return callback(null, true);
-      if (host && origin === `http://${host}`) return callback(null, true);
+  const isAllowed =
+    !origin ||                         // no Origin header = same-site / server request
+    allowedOrigins.length === 0 ||     // no allow-list configured = allow all
+    allowedOrigins.includes(origin) || // explicitly listed origin
+    isSameOrigin;                      // app's own domain (covers Vite crossorigin assets)
 
-      callback(new Error("CORS origin not allowed"));
-    },
-    credentials: true,
-  }),
-);
+  if (isAllowed) {
+    if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+  }
+
+  // Handle preflight
+  if (req.method === "OPTIONS") {
+    if (isAllowed) {
+      res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Max-Age", "86400");
+      return res.status(204).end();
+    }
+    return res.status(403).json({ message: "CORS origin not allowed" });
+  }
+
+  if (!isAllowed) {
+    return res.status(403).json({ message: "CORS origin not allowed" });
+  }
+
+  next();
+});
 app.use(clerkMiddleware());
 
 app.get("/health", (req, res) => {
