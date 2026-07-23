@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+    env_file:
+      - ./backend/.env
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+    restart: unless-stopped

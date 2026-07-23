@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clerk Webhook Flow Explained</title>
+  <style>
+    :root {
+      --bg: #f6f2e8;
+      --paper: #fffdf8;
+      --ink: #1f2933;
+      --muted: #5f6c7b;
+      --line: #d8cdb7;
+      --accent: #d97706;
+      --accent-soft: #fff1d6;
+      --frontend: #d7f0ff;
+      --clerk: #fde2e2;
+      --backend: #dff3e4;
+      --db: #efe3ff;
+      --shadow: 0 14px 38px rgba(31, 41, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(217, 119, 6, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(103, 80, 164, 0.08), transparent 25%),
+        linear-gradient(180deg, #fbf7ef 0%, var(--bg) 100%);
+      line-height: 1.6;
+    }
+
+    .page {
+      width: min(1120px, calc(100% - 32px));
+      margin: 32px auto 56px;
+    }
+
+    .hero,
+    .section,
+    .note {
+      background: rgba(255, 253, 248, 0.94);
+      border: 1px solid rgba(216, 205, 183, 0.9);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 32px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #9a5800;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.2;
+      margin: 0 0 12px;
+    }
+
+    h1 {
+      margin-top: 14px;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+    }
+
+    h2 {
+      font-size: clamp(1.4rem, 2.2vw, 2rem);
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--muted);
+    }
+
+    .lead {
+      font-size: 1.06rem;
+      max-width: 78ch;
+    }
+
+    .summary-grid,
+    .cards,
+    .file-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .summary-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-top: 24px;
+    }
+
+    .mini-card,
+    .flow-card,
+    .step,
+    .file-card {
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: var(--paper);
+    }
+
+    .mini-card {
+      padding: 18px;
+    }
+
+    .mini-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--ink);
+    }
+
+    .section {
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .diagram {
+      display: grid;
+      gap: 16px;
+      margin-top: 22px;
+    }
+
+    .diagram-row {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .flow-card {
+      padding: 16px;
+      position: relative;
+      min-height: 152px;
+    }
+
+    .flow-card h3 {
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+
+    .flow-card p {
+      font-size: 0.96rem;
+      margin-bottom: 0;
+    }
+
+    .frontend {
+      background: linear-gradient(180deg, #eff9ff 0%, var(--frontend) 100%);
+    }
+
+    .clerk {
+      background: linear-gradient(180deg, #fff3f3 0%, var(--clerk) 100%);
+    }
+
+    .backend {
+      background: linear-gradient(180deg, #f0fbf3 0%, var(--backend) 100%);
+    }
+
+    .db {
+      background: linear-gradient(180deg, #f7f1ff 0%, var(--db) 100%);
+    }
+
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 1.5rem;
+    }
+
+    .split-wrap {
+      margin-top: 24px;
+      padding: 18px;
+      border: 1px dashed var(--line);
+      border-radius: 20px;
+      background: #fffaf1;
+    }
+
+    .split-title {
+      margin-bottom: 14px;
+      font-weight: 700;
+      color: #8f4d00;
+    }
+
+    .split-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .cards {
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      margin-top: 18px;
+    }
+
+    .step {
+      padding: 18px;
+    }
+
+    .step-number {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .note {
+      padding: 22px;
+      margin-bottom: 24px;
+      background: #fff7e8;
+    }
+
+    .file-grid {
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      margin-top: 18px;
+    }
+
+    .file-card {
+      padding: 18px;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: rgba(31, 41, 51, 0.08);
+      color: var(--ink);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.95em;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .truth {
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: 18px;
+      background: #fff8eb;
+      border: 1px solid #f1d7a4;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 960px) {
+      .diagram-row,
+      .split-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        transform: rotate(90deg);
+        min-height: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <span class="eyebrow">Simple System View</span>
+      <h1>How Signup, Clerk, Webhooks, and MongoDB Are Connected</h1>
+      <p class="lead">
+        This page explains the full wiring in the easiest way possible. The most important idea is:
+        clicking <code>SignUpButton</code> does not directly save data into MongoDB. First the user is
+        created in Clerk, then the app and webhook together help sync that user into your backend database.
+      </p>
+
+      <div class="summary-grid">
+        <article class="mini-card">
+          <strong>1. UI starts the process</strong>
+          <p>The user clicks the signup button in your frontend.</p>
+        </article>
+        <article class="mini-card">
+          <strong>2. Clerk creates the auth user</strong>
+          <p>Clerk handles signup and stores the user in Clerk's system.</p>
+        </article>
+        <article class="mini-card">
+          <strong>3. Backend stores app data</strong>
+          <p>Your backend writes the user into MongoDB so your app can use it later.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Big Picture First</h2>
+      <p>
+        After the user signs up, <strong>two useful sync paths</strong> can happen in your project:
+      </p>
+      <ul>
+        <li>The frontend notices the signed-in user and calls <code>/api/users/sync</code>.</li>
+        <li>Clerk also sends a server-to-server webhook to <code>/api/webhooks/clerk</code>.</li>
+      </ul>
+
+      <div class="truth">
+        <strong>Very important truth:</strong>
+        <p>
+          The user does <strong>not</strong> click a button that directly calls the webhook. The webhook is sent by
+          Clerk's server, not by the browser. The browser talks to Clerk's UI and to your backend sync route.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Block Diagram: Full Signup Journey</h2>
+      <p>This is the end-to-end path from the signup button all the way to the database.</p>
+
+      <div class="diagram">
+        <div class="diagram-row">
+          <article class="flow-card frontend">
+            <h3>1. User clicks Signup</h3>
+            <p>
+              In <code>frontend/src/App.jsx</code>, the user clicks <code>&lt;SignUpButton /&gt;</code>.
+              Clerk opens the signup modal on the UI.
+            </p>
+          </article>
+          <div class="arrow">→</div>
+          <article class="flow-card clerk">
+            <h3>2. Clerk handles signup</h3>
+            <p>
+              Clerk collects email, password, and profile details. Clerk is doing the authentication work here.
+            </p>
+          </article>
+          <div class="arrow">→</div>
+          <article class="flow-card clerk">
+            <h3>3. User is created in Clerk</h3>
+            <p>
+              Clerk stores the new user in its own system. This is why you can see the user in the Clerk dashboard.
+            </p>
+          </article>
+        </div>
+      </div>
+
+      <div class="split-wrap">
+        <div class="split-title">After the user is created in Clerk, the flow splits into two paths:</div>
+        <div class="split-grid">
+          <article class="flow-card frontend">
+            <h3>Path A: Frontend Sync</h3>
+            <p>
+              The browser now knows the user is signed in. Your React app reads the Clerk user with
+              <code>useUser()</code> and sends a POST request to <code>/api/users/sync</code>.
+            </p>
+          </article>
+          <article class="flow-card clerk">
+            <h3>Path B: Clerk Webhook</h3>
+            <p>
+              Clerk's server sends an event like <code>user.created</code> to your backend route
+              <code>/api/webhooks/clerk</code>.
+            </p>
+          </article>
+        </div>
+      </div>
+
+      <div class="diagram" style="margin-top: 18px;">
+        <div class="diagram-row">
+          <article class="flow-card frontend">
+            <h3>4A. Frontend sends user data</h3>
+            <p>
+              The frontend sends <code>clerkId</code>, <code>email</code>, <code>fullName</code>, and
+              <code>profilePic</code> to <code>/api/users/sync</code>.
+            </p>
+          </article>
+          <div class="arrow">→</div>
+          <article class="flow-card backend">
+            <h3>5A. Backend sync route runs</h3>
+            <p>
+              In <code>backend/src/index.js</code>, your backend receives the request and runs
+              <code>User.findOneAndUpdate(..., { upsert: true })</code>.
+            </p>
+          </article>
+          <div class="arrow">→</div>
+          <article class="flow-card db">
+            <h3>6A. MongoDB stores the user</h3>
+            <p>
+              MongoDB saves the record in your <code>User</code> collection with fields like
+              <code>clerkId</code>, <code>email</code>, <code>fullName</code>, and <code>profilePic</code>.
+            </p>
+          </article>
+        </div>
+
+        <div class="diagram-row">
+          <article class="flow-card clerk">
+            <h3>4B. Clerk sends webhook event</h3>
+            <p>
+              Clerk sends signed event data to <code>/api/webhooks/clerk</code>. This is server-to-server communication.
+            </p>
+          </article>
+          <div class="arrow">→</div>
+          <article class="flow-card backend">
+            <h3>5B. Backend verifies the webhook</h3>
+            <p>
+              In <code>backend/src/webhooks/clerk.webhook.js</code>, your backend verifies the signature,
+              trusts the event, and then saves or updates the user.
+            </p>
+          </article>
+          <div class="arrow">→</div>
+          <article class="flow-card db">
+            <h3>6B. MongoDB stays in sync</h3>
+            <p>
+              MongoDB gets updated again if needed. This is very useful for <code>user.updated</code> and
+              <code>user.deleted</code> events too.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Connect Every Dot Step by Step</h2>
+      <div class="cards">
+        <article class="step">
+          <div class="step-number">1</div>
+          <h3>Frontend loads Clerk</h3>
+          <p>
+            In <code>frontend/src/main.jsx</code>, <code>ClerkProvider</code> is added. This gives your app access
+            to Clerk auth features like signup, signin, and current user data.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">2</div>
+          <h3>User clicks Sign Up</h3>
+          <p>
+            In <code>frontend/src/App.jsx</code>, <code>SignUpButton</code> opens the Clerk signup modal.
+            The browser is now talking to Clerk's auth UI.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">3</div>
+          <h3>Clerk creates the real auth user</h3>
+          <p>
+            Clerk stores the new user in Clerk's own system. That is why the user appears in the Clerk dashboard first.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">4</div>
+          <h3>The browser gets the signed-in user</h3>
+          <p>
+            After signup succeeds, <code>useUser()</code> in <code>App.jsx</code> can read the user object
+            such as id, email, name, and image.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">5</div>
+          <h3>Frontend sends data to your backend</h3>
+          <p>
+            Your app calls <code>/api/users/sync</code> with the Clerk user details. This is your own backend API route.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">6</div>
+          <h3>Backend is already connected to MongoDB</h3>
+          <p>
+            In <code>backend/src/lib/db.js</code>, <code>connectionDB()</code> connects the server to MongoDB
+            when the backend starts.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">7</div>
+          <h3>Backend writes the user</h3>
+          <p>
+            In <code>backend/src/index.js</code>, the sync route uses <code>findOneAndUpdate</code> with
+            <code>upsert: true</code>. That means:
+          </p>
+          <ul>
+            <li>if the user already exists, update it</li>
+            <li>if the user does not exist, create it</li>
+          </ul>
+        </article>
+
+        <article class="step">
+          <div class="step-number">8</div>
+          <h3>Clerk also sends a webhook</h3>
+          <p>
+            Separately, Clerk sends a webhook event like <code>user.created</code> or <code>user.updated</code>
+            to your backend. This is not from the browser. This comes from Clerk's server.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">9</div>
+          <h3>Backend verifies the webhook safely</h3>
+          <p>
+            Your backend reads the raw body, checks the Clerk signing secret, and only then trusts the webhook data.
+          </p>
+        </article>
+
+        <article class="step">
+          <div class="step-number">10</div>
+          <h3>MongoDB stays in sync with Clerk</h3>
+          <p>
+            The webhook path helps keep your local database updated even when something changes later in Clerk,
+            like a profile update or user deletion.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="note">
+      <h2>Why Use Both Frontend Sync and Webhook?</h2>
+      <p>
+        Using both is actually helpful in this app:
+      </p>
+      <ul>
+        <li><strong>Frontend sync</strong> gives you a quick save right after the user signs up and lands in the app.</li>
+        <li><strong>Webhook sync</strong> keeps your database correct even when the change comes from Clerk later.</li>
+      </ul>
+      <p>
+        So the frontend path is like an immediate save, and the webhook path is like a trusted background sync from Clerk.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Which File Does What?</h2>
+      <div class="file-grid">
+        <article class="file-card">
+          <h3><code>frontend/src/main.jsx</code></h3>
+          <p>Starts Clerk in the React app using <code>ClerkProvider</code>.</p>
+        </article>
+
+        <article class="file-card">
+          <h3><code>frontend/src/App.jsx</code></h3>
+          <p>
+            Shows the signup button and, after signup, reads the user and calls
+            <code>/api/users/sync</code>.
+          </p>
+        </article>
+
+        <article class="file-card">
+          <h3><code>backend/src/index.js</code></h3>
+          <p>
+            Starts Express, connects middleware, adds <code>/api/users/sync</code>, and mounts
+            <code>/api/webhooks/clerk</code>.
+          </p>
+        </article>
+
+        <article class="file-card">
+          <h3><code>backend/src/webhooks/clerk.webhook.js</code></h3>
+          <p>
+            Receives Clerk webhook events, verifies them, and updates MongoDB safely.
+          </p>
+        </article>
+
+        <article class="file-card">
+          <h3><code>backend/src/models/user.model.js</code></h3>
+          <p>
+            Defines the user data shape stored in MongoDB:
+            <code>clerkId</code>, <code>email</code>, <code>fullName</code>, and <code>profilePic</code>.
+          </p>
+        </article>
+
+        <article class="file-card">
+          <h3><code>backend/src/lib/db.js</code></h3>
+          <p>Creates the MongoDB connection so the backend can read and write users.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>One-Line Simple Explanation</h2>
+      <p>
+        The user clicks signup in the UI, Clerk creates and stores the auth user, your app then reads that Clerk user,
+        sends the details to your backend, and your backend stores the user in MongoDB while the Clerk webhook keeps
+        everything synced safely in the background.
+      </p>
+    </section>
+
+    <p class="footer">
+      File created for your project documentation: <code>CLERK_WEBHOOK_FLOW_EXPLAINED.html</code>
+    </p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iMessage Backend Architecture</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 0; padding: 0; background: #f3f6fb; color: #111; }
+    .page { max-width: 1000px; margin: 0 auto; padding: 32px; }
+    h1, h2, h3 { color: #1a2b49; }
+    .section { background: #ffffff; border: 1px solid #d9e2ef; border-radius: 18px; padding: 24px; margin-bottom: 24px; box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08); }
+    .section p { line-height: 1.75; }
+    .note { background: #eef4ff; border-left: 4px solid #5b8cff; padding: 14px 18px; margin: 18px 0; border-radius: 10px; }
+    .diagram { display: grid; gap: 18px; margin: 24px 0; }
+    .diagram-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .flow-diagram { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 18px 0; }
+    .flow-step { width: min(100%, 380px); border: 1px solid #cbd5e1; border-radius: 16px; background: #fafbff; padding: 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7); text-align: center; }
+    .flow-step strong { display: block; margin-bottom: 10px; color: #0f172a; }
+    .flow-arrow { font-size: 32px; color: #64748b; }
+    .box { flex: 1 1 260px; min-width: 220px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fafbff; padding: 16px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7); }
+    .box strong { display: block; margin-bottom: 10px; color: #0f172a; }
+    .arrow { text-align: center; font-size: 28px; color: #64748b; margin: 0; }
+    .code { background: #0f172a; color: #f8fafc; padding: 16px; border-radius: 14px; overflow-x: auto; font-family: Consolas, Monaco, 'Andale Mono', monospace; font-size: 13px; line-height: 1.55; margin: 16px 0; }
+    .file-list { display: grid; gap: 12px; }
+    .file-item { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 14px; background: #f8fafc; }
+    .file-item strong { display: block; margin-bottom: 6px; }
+    .small { font-size: 0.94rem; color: #475569; }
+    .term { color: #1d4ed8; font-weight: 600; }
+    .inline-code { font-family: Consolas, Monaco, monospace; background: rgba(15,23,42,.06); padding: 2px 6px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>iMessage Backend Architecture</h1>
+    <p>This HTML guide explains how the backend is structured, what each file does, and how requests flow through the app.</p>
+
+    <div class="section">
+      <h2>1. Big picture</h2>
+      <p>The backend lives in <span class="inline-code">backend/src</span>. It is an Express server with three main responsibilities:</p>
+      <ul>
+        <li>Authenticate and sync users through Clerk webhooks.</li>
+        <li>Handle chat operations like fetching conversations, sending messages, and uploading media.</li>
+        <li>Support real-time presence / message delivery via Socket.IO.</li>
+      </ul>
+      <div class="flow-diagram">
+        <div class="flow-step"><strong>Frontend</strong> Browser or mobile client sends API calls and socket events.</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>Express Server</strong> <span class="small">src/index.js</span></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>MongoDB</strong> User and message data storage.</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>Socket.IO</strong> Real-time online status and push messages.</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>2. Entry point: <span class="term">src/index.js</span></h2>
+      <p>This file is the first code that runs when the backend starts.</p>
+      <div class="file-item">
+        <strong>What it does</strong>
+        <ul>
+          <li>Creates an Express app and HTTP server.</li>
+          <li>Mounts the Clerk webhook endpoint at <span class="inline-code">/api/webhooks/clerk</span>.</li>
+          <li>Loads JSON parsing, CORS, and Clerk authentication middleware.</li>
+          <li>Registers route groups for auth and message APIs.</li>
+          <li>Starts the HTTP server and connects to MongoDB.</li>
+          <li>Starts a periodic health ping in production.</li>
+        </ul>
+      </div>
+      <div class="code"><code>app.use("/api/webhooks/clerk", express.raw({ type: "application/json" }), clerkWebhook);
+app.use(express.json());
+app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+app.use(clerkMiddleware());
+
+app.use("/api/auth", authRoutes);
+app.use("/api/messages", messageRoutes);
+
+server.listen(PORT, () => {
+  connectDB();
+  console.log("Server is up and running on PORT:", PORT);
+  if (process.env.NODE_ENV === "production") job.start();
+});</code></div>
+      <p><strong>Triggered when:</strong> the backend process starts with <span class="inline-code">npm start</span> or <span class="inline-code">npm run dev</span>.</p>
+    </div>
+
+    <div class="section">
+      <h2>3. Backend folders and flow</h2>
+      <div class="file-list">
+        <div class="file-item"><strong>controllers/</strong> Business logic for API endpoints.</div>
+        <div class="file-item"><strong>routes/</strong> Defines endpoint URLs and connects controllers.</div>
+        <div class="file-item"><strong>middleware/</strong> Request filters for auth and uploads.</div>
+        <div class="file-item"><strong>models/</strong> Mongoose schemas for users and messages.</div>
+        <div class="file-item"><strong>lib/</strong> Utility libraries: database, sockets, media uploads, cron.</div>
+        <div class="file-item"><strong>webhooks/</strong> Clerk webhook processor for syncing user data.</div>
+        <div class="file-item"><strong>seeds/</strong> Helper to insert sample users into the database.</div>
+      </div>
+      <div class="flow-diagram">
+        <div class="flow-step"><strong>routes/</strong><br />Receives API calls</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>middleware/</strong><br />Protects requests and uploads files</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>controllers/</strong><br />Runs app logic</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>models/</strong><br />Reads/writes MongoDB</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>4. Authentication and user sync</h2>
+      <p>The backend relies on Clerk for authentication and keeps a local <span class="inline-code">User</span> record for each logged-in person.</p>
+      <div class="flow-diagram">
+        <div class="flow-step"><strong>Clerk</strong><br />User sign-in / profile update</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>/api/webhooks/clerk</strong><br />Webhook processor</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>src/models/user.model.js</strong><br />Stores Clerk ID, email, name, picture</div>
+      </div>
+      <div class="file-item"><strong>src/webhooks/clerk.webhook.js</strong></div>
+      <div class="code"><code>if (evt.type === "user.created" || evt.type === "user.updated") {
+  await User.findOneAndUpdate(
+    { clerkId: u.id },
+    { clerkId: u.id, email, fullName, profilePic: u.image_url },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  );
+}
+if (evt.type === "user.deleted") {
+  await User.findOneAndDelete({ clerkId: evt.data.id });
+}</code></div>
+      <p><strong>Triggered when:</strong> Clerk sends a webhook event to the backend. This synchronizes users from Clerk into MongoDB.</p>
+
+      <div class="file-item"><strong>src/middleware/auth.middleware.js</strong></div>
+      <div class="code"><code>const { userId } = getAuth(req);
+if (!userId) {
+  res.status(401).json({ message: "Unauthorized" });
+  return;
+}
+const user = await User.findOne({ clerkId: userId });
+req.user = user;
+next();</code></div>
+      <p><strong>Triggered when:</strong> any protected route is called. It ensures the request comes from a signed-in user and that the user's profile is already synced.</p>
+    </div>
+
+    <div class="section">
+      <h2>5. Message APIs</h2>
+      <div class="flow-diagram">
+        <div class="flow-step"><strong>Client</strong><br />Requests in sidebar and chat screen</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>/api/messages</strong><br />Routes from <span class="term">message.route.js</span></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><strong>message.controller.js</strong><br />Fetches data and saves messages</div>
+      </div>
+      <div class="file-item"><strong>src/routes/message.route.js</strong></div>
+      <div class="code"><code>router.use(protectRoute);
+router.get("/users", getUsersForSidebar);
+router.get("/conversations", getConversationsForSidebar);
+router.get(":id", getMessages);
+router.post("/send/:id", upload.single("media"), sendMessage);
+</code></div>
+      <p><strong>What each endpoint does:</strong></p>
+      <ul>
+        <li><span class="inline-code">GET /api/messages/users</span> — returns other users for the sidebar.</li>
+        <li><span class="inline-code">GET /api/messages/conversations</span> — returns chat partners in most recent order.</li>
+        <li><span class="inline-code">GET /api/messages/:id</span> — returns all messages between the current user and the selected user.</li>
+        <li><span class="inline-code">POST /api/messages/send/:id</span> — sends a new message to the selected user.</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3>5.1 Message controller details</h3>
+      <div class="file-item"><strong>src/controllers/message.controller.js</strong></div>
+      <div class="code"><code>export async function getUsersForSidebar(req, res) {
+  const loggedInUserId = req.user._id;
+  const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-clerkId");
+  res.status(200).json(filteredUsers);
+}
+
+export async function getConversationsForSidebar(req, res) {
+  const conversations = await Message.aggregate([...]);
+  res.status(200).json(conversations);
+}
+
+export async function sendMessage(req, res) {
+  const { text } = req.body;
+  const { id: receiverId } = req.params;
+  const senderId = req.user._id;
+  if (req.file) { ... uploadChatMedia(req.file); }
+  const newMessage = new Message({ senderId, receiverId, text, image: imageUrl, video: videoUrl });
+  await newMessage.save();
+  const receiverSocketId = getReceiverSocketId(receiverId);
+  if (receiverSocketId) io.to(receiverSocketId).emit("newMessage", newMessage);
+  res.status(201).json(newMessage);
+}</code></div>
+      <p><strong>Triggered when:</strong> the frontend requests chat data or sends a message.</p>
+      <p><strong>Note:</strong> <span class="inline-code">sendMessage</span> can upload media if the request has a file, and then it sends a real-time socket event to the receiver if they are online.</p>
+    </div>
+
+    <div class="section">
+      <h2>6. Media upload helper</h2>
+      <div class="file-item"><strong>src/middleware/upload.middleware.js</strong></div>
+      <div class="code"><code>export const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: (req, file, cb) => {
+    const isImage = file.mimetype.startsWith("image/");
+    const isVideo = file.mimetype.startsWith("video/");
+    if (!isImage && !isVideo) cb(new Error("Only image and video uploads are allowed"));
+    cb(null, true);
+  },
+});</code></div>
+      <p>This middleware reads file uploads into memory and only allows images or videos. It is used by the message send endpoint.</p>
+    </div>
+
+    <div class="section">
+      <h2>7. Real-time socket server</h2>
+      <div class="file-item"><strong>src/lib/socket.js</strong></div>
+      <div class="code"><code>const io = new Server(server, { cors: { origin: [allowedOrigin] } });
+const userSocketMap = {};
+io.on("connection", (socket) => {
+  const userId = socket.handshake.query.userId;
+  if (userId) userSocketMap[userId] = socket.id;
+  io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  socket.on("disconnect", () => { ... });
+});
+export { app, server, io, getReceiverSocketId };
+</code></div>
+      <p><strong>What it does:</strong></p>
+      <ul>
+        <li>Keeps track of connected users with <span class="inline-code">userSocketMap</span>.</li>
+        <li>Broadcasts online user IDs with <span class="inline-code">getOnlineUsers</span>.</li>
+        <li>Allows the message controller to push events to a specific receiver.</li>
+      </ul>
+      <p><strong>Triggered when:</strong> a client opens a socket connection and when a user disconnects.</p>
+    </div>
+
+    <div class="section">
+      <h2>8. Database and models</h2>
+      <div class="file-item"><strong>src/lib/db.js</strong></div>
+      <div class="code"><code>export async function connectDB() {
+  const mongoUri = process.env.MONGO_URI;
+  const conn = await mongoose.connect(mongoUri);
+  console.log("MongoDB connected", conn.connection.host);
+}</code></div>
+      <p><strong>Triggered when:</strong> the server starts and <span class="inline-code">connectDB()</span> is called from <span class="term">src/index.js</span>.</p>
+      <div class="file-item"><strong>src/models/user.model.js</strong></div>
+      <div class="code"><code>const userSchema = new mongoose.Schema({
+  clerkId: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  fullName: { type: String, required: true },
+  profilePic: { type: String, default: "" },
+}, { timestamps: true });</code></div>
+      <div class="file-item"><strong>src/models/message.model.js</strong></div>
+      <div class="code"><code>const messageSchema = new mongoose.Schema({
+  senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  receiverId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  text: { type: String },
+  image: { type: String },
+  video: { type: String },
+}, { timestamps: true });</code></div>
+      <p>The two models connect users and messages. A message stores the sender, receiver, text, and optionally image or video URLs.</p>
+    </div>
+
+    <div class="section">
+      <h2>9. Health ping (cron job)</h2>
+      <div class="file-item"><strong>src/lib/cron.js</strong></div>
+      <div class="code"><code>const job = new CronJob("*/14 * * * *", function () {
+  const base = process.env.FRONTEND_URL;
+  const url = new URL("/health", base).href;
+  client.get(url, (res) => { ... });
+});
+export default job;</code></div>
+      <p>This cron job sends a request every 14 minutes to the frontend health endpoint. It only starts when <span class="inline-code">NODE_ENV</span> is <span class="inline-code">production</span>.</p>
+    </div>
+
+    <div class="section">
+      <h2>10. Sample data seeding</h2>
+      <div class="file-item"><strong>src/seeds/user.seed.js</strong></div>
+      <div class="code"><code>const seedUsers = [
+  ["seed_alex_chen", "Alex Chen", "alex.chen@example.com", "https://i.pravatar.cc/150?img=1"],
+  ...
+];
+await User.bulkWrite(seedUsers.map(([clerkId, fullName, email, profilePic]) => ({
+  updateOne: { filter: { clerkId }, update: { $set: { clerkId, fullName, email, profilePic } }, upsert: true },
+})));
+</code></div>
+      <p>This script is not part of normal app flow. It is used manually to insert sample users using <span class="inline-code">npm run db:seed</span>.</p>
+    </div>
+
+    <div class="section">
+      <h2>11. Full request lifecycle for sending a message</h2>
+      <div class="diagram">
+        <div class="diagram-row">
+          <div class="box"><strong>Frontend</strong><br />User taps Send</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>POST /api/messages/send/:id</strong><br />message.route.js</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>protectRoute</strong><br />auth.middleware.js</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>upload.single("media")</strong><br />upload.middleware.js</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>sendMessage</strong><br />message.controller.js</div>
+        </div>
+      </div>
+      <p>If the message contains media, the controller uploads it through <span class="inline-code">src/lib/imagekit.js</span>. Then it saves the message and emits a socket event if the receiver is online.</p>
+    </div>
+
+    <div class="section">
+      <h2>12. Environment variables used</h2>
+      <ul>
+        <li><span class="inline-code">PORT</span> — backend server port.</li>
+        <li><span class="inline-code">FRONTEND_URL</span> — frontend origin and health ping target.</li>
+        <li><span class="inline-code">MONGO_URI</span> — MongoDB connection string.</li>
+        <li><span class="inline-code">IMAGEKIT_PRIVATE_KEY</span> — required to upload media to ImageKit.</li>
+        <li><span class="inline-code">CLERK_WEBHOOK_SIGNING_SECRET</span> — verifies Clerk webhook requests.</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>13. How the pieces are connected</h2>
+      <p>Here is the runtime connection graph in simple terms:</p>
+      <ol>
+        <li><span class="inline-code">src/index.js</span> starts Express, socket server, DB connection, and webhook handling.</li>
+        <li><span class="inline-code">src/webhooks/clerk.webhook.js</span> keeps user profiles synced from Clerk into MongoDB.</li>
+        <li><span class="inline-code">src/routes/auth.route.js</span> and <span class="inline-code">src/routes/message.route.js</span> expose API endpoints for the frontend.</li>
+        <li><span class="inline-code">src/middleware/auth.middleware.js</span> protects message routes and ensures the user exists in the local DB.</li>
+        <li><span class="inline-code">src/controllers/message.controller.js</span> performs all messaging operations and sends real-time updates.</li>
+        <li><span class="inline-code">src/lib/socket.js</span> tracks online users and delivers live message events.</li>
+      </ol>
+    </div>
+
+    <div class="note">
+      <strong>Key idea:</strong> The backend is mainly a chat API plus user sync. It does not handle frontend UI. The frontend logs in with Clerk, then calls the backend for user lists, conversations, and sending messages. Webhooks keep the local user database updated.
+    </div>
+  </div>
+</body>
+</html>
