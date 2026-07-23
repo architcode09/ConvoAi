@@ -9,7 +9,14 @@ export function getSocket() {
 
 export function connectSocket(userId) {
   if (!userId) return null;
-  if (socket?.connected) return socket;
+
+  // Reuse the existing socket instance even if it's temporarily disconnected.
+  // Checking only socket?.connected caused a new socket to be created whenever
+  // the server restarted (e.g. Render free-tier spin-down), abandoning the old
+  // socket that still had the newMessage listener — requiring a page refresh.
+  // Socket.IO's built-in reconnection handles re-establishing the connection
+  // without losing any registered event listeners.
+  if (socket) return socket;
 
   socket = io(SOCKET_BASE_URL, {
     autoConnect: true,
