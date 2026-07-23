@@ -12,7 +12,15 @@ function AuthHeader() {
         <div>
           <p className="truncate text-[15px] font-semibold leading-tight">{APP_NAME}</p>
           <p className="truncate text-xs text-[#8E8E93] dark:text-[#98989D]">
-            AI-first messaging
+            AI-first messaging · Made by{' '}
+            <a
+              href="https://www.linkedin.com/in/archit-surmal-dev"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Archit Surmal
+            </a>
           </p>
         </div>
       </div>
