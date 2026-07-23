@@ -6,37 +6,40 @@ const app = express();
 const server = http.createServer(app);
 
 function getAllowedOrigins() {
-  const configuredOrigins = process.env.FRONTEND_URL?.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-  // If no explicit list is configured, we'll handle dynamically (monolith mode)
-  return configuredOrigins || [];
+  return (
+    process.env.FRONTEND_URL?.split(",")
+      .map((o) => o.trim())
+      .filter(Boolean) || []
+  );
 }
 
 const allowedOrigins = getAllowedOrigins();
 
+function isOriginAllowed(origin, host) {
+  if (!origin) return true;                          // no origin = server / same-site
+  if (allowedOrigins.length === 0) return true;      // no allow-list = allow all
+  if (allowedOrigins.includes(origin)) return true;  // explicitly listed
+  // Same-origin: Vite crossorigin assets / Socket.IO polling from the app's own host
+  if (host && (origin === `https://${host}` || origin === `http://${host}`)) return true;
+  return false;
+}
+
 const io = new Server(server, {
-  cors: {
-    origin: (origin, callback, req) => {
-      // No origin header \u2192 non-browser or same-site request \u2192 allow
-      if (!origin) return callback(null, true);
+  // allowRequest gives full access to req (including req.headers.host).
+  // Socket.IO's cors.origin callback does NOT receive req, so we handle
+  // CORS manually here instead.
+  allowRequest: (req, callback) => {
+    const origin = req.headers.origin;
+    const host = req.headers.host;
+    const allowed = isOriginAllowed(origin, host);
 
-      // No allow-list configured \u2192 allow all (monolith: frontend served from same origin)
-      if (allowedOrigins.length === 0) return callback(null, true);
+    if (allowed && origin) {
+      req.res.setHeader("Access-Control-Allow-Origin", origin);
+      req.res.setHeader("Access-Control-Allow-Credentials", "true");
+      req.res.setHeader("Vary", "Origin");
+    }
 
-      // Explicitly listed origin \u2192 allow
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-
-      // Always allow the app's own host (handles Render/production same-origin WS)
-      const host = req?.headers?.host;
-      if (host && (origin === `https://${host}` || origin === `http://${host}`)) {
-        return callback(null, true);
-      }
-
-      callback(new Error("Socket.IO origin not allowed"));
-    },
-    credentials: true,
+    callback(null, allowed);
   },
 });
 const userSocketMap = new Map();
